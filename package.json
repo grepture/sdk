@@ -1,0 +1,49 @@
+{
+  "name": "@grepture/sdk",
+  "version": "0.1.0",
+  "description": "Grepture proxy SDK — drop-in fetch wrapper for AI API governance",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/grepture/grepture",
+    "directory": "sdk"
+  },
+  "homepage": "https://grepture.com",
+  "keywords": [
+    "grepture",
+    "proxy",
+    "pii",
+    "redaction",
+    "ai",
+    "llm",
+    "openai",
+    "data-protection",
+    "compliance",
+    "fetch"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
