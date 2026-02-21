@@ -2,7 +2,7 @@
   "name": "@grepture/sdk",
   "version": "0.1.0",
   "description": "Grepture proxy SDK — drop-in fetch wrapper for AI API governance",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/grepture/grepture",
