@@ -80,10 +80,15 @@ export class Grepture {
 
       const headers = new Headers(reqInit?.headers);
 
-      // Move SDK Authorization to X-Grepture-Auth-Forward
+      // Move SDK auth to X-Grepture-Auth-Forward
+      // Supports both standard Authorization and Azure's api-key header
       const authHeader = headers.get("Authorization");
+      const azureApiKey = headers.get("api-key");
       if (authHeader) {
         headers.set("X-Grepture-Auth-Forward", authHeader);
+      } else if (azureApiKey) {
+        headers.set("X-Grepture-Auth-Forward", `Bearer ${azureApiKey}`);
+        headers.delete("api-key");
       }
 
       // Set Grepture auth and target
