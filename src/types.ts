@@ -1,9 +1,14 @@
 export type GreptureConfig = {
   apiKey: string;
   proxyUrl: string;
+  /** Default trace ID applied to all requests. Override per-request via FetchOptions or setTraceId(). */
+  traceId?: string;
 };
 
-export type FetchOptions = RequestInit;
+export type FetchOptions = RequestInit & {
+  /** Trace ID for this request. Overrides the default set on the client. */
+  traceId?: string;
+};
 
 export type GreptureResponseMeta = {
   requestId: string;

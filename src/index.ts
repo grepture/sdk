@@ -14,3 +14,13 @@ export type {
   ClientOptionsInput,
   ClientOptionsOutput,
 } from "./types.js";
+export { promptHeaders, resolveMessages, resolveTemplate } from "./prompts.js";
+export type {
+  PromptRef,
+  PromptMessages,
+  PromptMessage,
+  PromptVariable,
+  PromptTemplate,
+  AssembledPrompt,
+  PromptListItem,
+} from "./prompts.js";

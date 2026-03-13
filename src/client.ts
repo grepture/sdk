@@ -12,15 +12,38 @@ import {
   BlockedError,
   ProxyError,
 } from "./errors.js";
-
+import {
+  promptHeaders,
+  PromptNamespace,
+  type PromptRef,
+} from "./prompts.js";
 export class Grepture {
   private readonly config: GreptureConfig;
+  private currentTraceId: string | undefined;
+
+  /** Prompt management — use, assemble, get, resolve, list. */
+  readonly prompt: PromptNamespace;
 
   constructor(config: GreptureConfig) {
     this.config = {
       ...config,
       proxyUrl: config.proxyUrl.replace(/\/+$/, ""),
     };
+    this.currentTraceId = config.traceId;
+    this.prompt = new PromptNamespace({
+      apiKey: this.config.apiKey,
+      proxyUrl: this.config.proxyUrl,
+    });
+  }
+
+  /** Set or clear the default trace ID for all subsequent requests. */
+  setTraceId(traceId: string | undefined): void {
+    this.currentTraceId = traceId;
+  }
+
+  /** Get the current default trace ID. */
+  getTraceId(): string | undefined {
+    return this.currentTraceId;
   }
 
   async fetch(
@@ -42,6 +65,12 @@ export class Grepture {
     headers.set("Authorization", `Bearer ${this.config.apiKey}`);
     headers.set("X-Grepture-Target", targetUrl);
 
+    // Set trace ID (per-request overrides default)
+    const traceId = init?.traceId ?? this.currentTraceId;
+    if (traceId) {
+      headers.set("X-Grepture-Trace-Id", traceId);
+    }
+
     const response = await globalThis.fetch(proxyRequestUrl, {
       ...init,
       headers,
@@ -56,6 +85,7 @@ export class Grepture {
     const proxyBase = `${this.config.proxyUrl}/proxy/v1`;
     const greptureApiKey = this.config.apiKey;
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
+    const getTraceId = () => this.currentTraceId;
 
     const wrappedFetch: typeof fetch = async (
       reqInput: RequestInfo | URL,
@@ -80,6 +110,29 @@ export class Grepture {
 
       const headers = new Headers(reqInit?.headers);
 
+      // Detect prompt marker in request body and set headers
+      let finalInit = reqInit;
+      if (reqInit?.body && typeof reqInit.body === "string") {
+        try {
+          const body = JSON.parse(reqInit.body);
+          if (
+            Array.isArray(body.messages) &&
+            body.messages.length === 1 &&
+            body.messages[0]?._grepture_prompt
+          ) {
+            const ref: PromptRef = body.messages[0]._grepture_prompt;
+            const ph = promptHeaders(ref);
+            for (const [k, v] of Object.entries(ph)) {
+              headers.set(k, v);
+            }
+            body.messages = [];
+            finalInit = { ...reqInit, body: JSON.stringify(body) };
+          }
+        } catch {
+          // not JSON, pass through
+        }
+      }
+
       // Move SDK auth to X-Grepture-Auth-Forward
       // Supports both standard Authorization and Azure's api-key header
       const authHeader = headers.get("Authorization");
@@ -95,7 +148,13 @@ export class Grepture {
       headers.set("Authorization", `Bearer ${greptureApiKey}`);
       headers.set("X-Grepture-Target", targetUrl);
 
-      return globalThis.fetch(url, { ...reqInit, headers });
+      // Set trace ID if present
+      const traceId = getTraceId();
+      if (traceId) {
+        headers.set("X-Grepture-Trace-Id", traceId);
+      }
+
+      return globalThis.fetch(url, { ...finalInit, headers });
     };
 
     return {
