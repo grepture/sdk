@@ -17,9 +17,13 @@ import {
   PromptNamespace,
   type PromptRef,
 } from "./prompts.js";
+import { TraceSender } from "./trace.js";
+import { extractUsage, extractUsageFromSSELines } from "./usage.js";
+
 export class Grepture {
   private readonly config: GreptureConfig;
   private currentTraceId: string | undefined;
+  private traceSender: TraceSender | null = null;
 
   /** Prompt management — use, assemble, get, resolve, list. */
   readonly prompt: PromptNamespace;
@@ -30,10 +34,22 @@ export class Grepture {
       proxyUrl: config.proxyUrl.replace(/\/+$/, ""),
     };
     this.currentTraceId = config.traceId;
-    this.prompt = new PromptNamespace({
+    this.prompt = new TraceAwarePromptNamespace({
       apiKey: this.config.apiKey,
       proxyUrl: this.config.proxyUrl,
+      mode: this.config.mode ?? "proxy",
     });
+
+    if (this.isTraceMode) {
+      this.traceSender = new TraceSender(
+        this.config.proxyUrl,
+        this.config.apiKey,
+      );
+    }
+  }
+
+  private get isTraceMode(): boolean {
+    return this.config.mode === "trace";
   }
 
   /** Set or clear the default trace ID for all subsequent requests. */
@@ -46,7 +62,27 @@ export class Grepture {
     return this.currentTraceId;
   }
 
+  /**
+   * Flush pending trace data. No-op in proxy mode.
+   * Call before process exit in serverless / short-lived environments.
+   */
+  async flush(): Promise<void> {
+    if (this.traceSender) {
+      await this.traceSender.flush();
+    }
+  }
+
   async fetch(
+    targetUrl: string,
+    init?: FetchOptions,
+  ): Promise<GreptureResponse> {
+    if (this.isTraceMode) {
+      return this.fetchTrace(targetUrl, init);
+    }
+    return this.fetchProxy(targetUrl, init);
+  }
+
+  private async fetchProxy(
     targetUrl: string,
     init?: FetchOptions,
   ): Promise<GreptureResponse> {
@@ -81,7 +117,90 @@ export class Grepture {
     return new GreptureResponse(response);
   }
 
+  private async fetchTrace(
+    targetUrl: string,
+    init?: FetchOptions,
+  ): Promise<GreptureResponse> {
+    const traceId = init?.traceId ?? this.currentTraceId ?? null;
+    const requestBody =
+      init?.body && typeof init.body === "string" ? init.body : null;
+
+    // Detect streaming from request body
+    let isStreaming = false;
+    if (requestBody) {
+      try {
+        isStreaming = JSON.parse(requestBody).stream === true;
+      } catch { /* not JSON */ }
+    }
+
+    const startedAt = performance.now();
+
+    // Send directly to the target — no URL rewriting, no header manipulation
+    const response = await globalThis.fetch(targetUrl, init);
+
+    const durationMs = Math.round(performance.now() - startedAt);
+
+    if (isStreaming && response.body) {
+      // Wrap stream: pass through immediately, capture last few SSE lines for usage
+      const traceSender = this.traceSender!;
+      const wrappedBody = wrapStreamForTrace(response.body, {
+        method: init?.method ?? "POST",
+        targetUrl,
+        statusCode: response.status,
+        durationMs,
+        requestBody,
+        traceId,
+        traceSender,
+      });
+
+      const wrappedResponse = new Response(wrappedBody, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+
+      return new GreptureResponse(wrappedResponse, {
+        requestId: crypto.randomUUID(),
+        rulesApplied: [],
+      });
+    }
+
+    // Buffered: clone body, extract usage, send trace — don't block the caller
+    response
+      .clone()
+      .text()
+      .then((body) => {
+        const usage = extractUsage(body, targetUrl);
+        this.traceSender!.push(
+          TraceSender.buildEntry({
+            method: init?.method ?? "POST",
+            targetUrl,
+            statusCode: response.status,
+            durationMs,
+            requestBody,
+            responseBody: body,
+            usage,
+            traceId,
+            streaming: false,
+          }),
+        );
+      })
+      .catch(() => {});
+
+    return new GreptureResponse(response, {
+      requestId: crypto.randomUUID(),
+      rulesApplied: [],
+    });
+  }
+
   clientOptions(input: ClientOptionsInput): ClientOptionsOutput {
+    if (this.isTraceMode) {
+      return this.clientOptionsTrace(input);
+    }
+    return this.clientOptionsProxy(input);
+  }
+
+  private clientOptionsProxy(input: ClientOptionsInput): ClientOptionsOutput {
     const proxyBase = `${this.config.proxyUrl}/proxy/v1`;
     const greptureApiKey = this.config.apiKey;
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
@@ -164,6 +283,96 @@ export class Grepture {
     };
   }
 
+  private clientOptionsTrace(input: ClientOptionsInput): ClientOptionsOutput {
+    const targetBaseURL = input.baseURL.replace(/\/+$/, "");
+    const getTraceId = () => this.currentTraceId ?? null;
+    const traceSender = this.traceSender!;
+
+    const wrappedFetch: typeof fetch = async (
+      reqInput: RequestInfo | URL,
+      reqInit?: RequestInit,
+    ): Promise<Response> => {
+      const url =
+        typeof reqInput === "string"
+          ? reqInput
+          : reqInput instanceof URL
+            ? reqInput.toString()
+            : reqInput.url;
+
+      const startedAt = performance.now();
+      const requestBody =
+        reqInit?.body && typeof reqInit.body === "string"
+          ? reqInit.body
+          : null;
+
+      // Detect if this is a streaming request
+      let isStreaming = false;
+      if (requestBody) {
+        try {
+          const parsed = JSON.parse(requestBody);
+          isStreaming = parsed.stream === true;
+        } catch {
+          // not JSON
+        }
+      }
+
+      const traceId = getTraceId();
+
+      // Send directly to the real provider URL — no rewriting
+      const response = await globalThis.fetch(url, reqInit);
+
+      const durationMs = Math.round(performance.now() - startedAt);
+
+      if (isStreaming && response.body) {
+        const wrappedBody = wrapStreamForTrace(response.body, {
+          method: reqInit?.method ?? "POST",
+          targetUrl: url,
+          statusCode: response.status,
+          durationMs,
+          requestBody,
+          traceId,
+          traceSender,
+        });
+
+        return new Response(wrappedBody, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+
+      // Buffered response — clone and extract usage async
+      response
+        .clone()
+        .text()
+        .then((body) => {
+          const usage = extractUsage(body, url);
+          traceSender.push(
+            TraceSender.buildEntry({
+              method: reqInit?.method ?? "POST",
+              targetUrl: url,
+              statusCode: response.status,
+              durationMs,
+              requestBody,
+              responseBody: body,
+              usage,
+              traceId,
+              streaming: false,
+            }),
+          );
+        })
+        .catch(() => {});
+
+      return response;
+    };
+
+    return {
+      baseURL: targetBaseURL,
+      apiKey: input.apiKey,
+      fetch: wrappedFetch,
+    };
+  }
+
   private throwOnError(response: Response): void {
     if (response.ok) return;
 
@@ -186,4 +395,101 @@ export class Grepture {
         }
     }
   }
+}
+
+/**
+ * Prompt namespace that guards `.use()` in trace mode.
+ */
+class TraceAwarePromptNamespace extends PromptNamespace {
+  private readonly mode: "proxy" | "trace";
+
+  constructor(config: { apiKey: string; proxyUrl: string; mode: "proxy" | "trace" }) {
+    super({ apiKey: config.apiKey, proxyUrl: config.proxyUrl });
+    this.mode = config.mode;
+  }
+
+  override use(
+    slug: string,
+    options?: {
+      variables?: Record<string, string>;
+      version?: number | "draft";
+    },
+  ) {
+    if (this.mode === "trace") {
+      throw new Error(
+        `prompt.use() is not supported in trace mode because it requires the proxy to resolve prompts. ` +
+          `Use prompt.assemble("${slug}") instead, which fetches the template and resolves it locally.`,
+      );
+    }
+    return super.use(slug, options);
+  }
+}
+
+/**
+ * Wrap a ReadableStream to pass chunks through with zero latency
+ * while capturing the last few SSE `data:` lines for usage extraction.
+ */
+function wrapStreamForTrace(
+  body: ReadableStream<Uint8Array>,
+  opts: {
+    method: string;
+    targetUrl: string;
+    statusCode: number;
+    durationMs: number;
+    requestBody: string | null;
+    traceId: string | null;
+    traceSender: TraceSender;
+  },
+): ReadableStream<Uint8Array> {
+  const lastDataLines: string[] = [];
+  const MAX_LINES = 10;
+  const decoder = new TextDecoder();
+  let partial = "";
+
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      // Pass through immediately — zero latency
+      controller.enqueue(chunk);
+
+      // Accumulate only last few data: lines for usage extraction
+      const text = decoder.decode(chunk, { stream: true });
+      partial += text;
+      const lines = partial.split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data:") && trimmed !== "data: [DONE]") {
+          lastDataLines.push(trimmed);
+          if (lastDataLines.length > MAX_LINES) {
+            lastDataLines.shift();
+          }
+        }
+      }
+    },
+    flush() {
+      if (partial.trim().startsWith("data:") && partial.trim() !== "data: [DONE]") {
+        lastDataLines.push(partial.trim());
+        if (lastDataLines.length > MAX_LINES) {
+          lastDataLines.shift();
+        }
+      }
+
+      const usage = extractUsageFromSSELines(lastDataLines, opts.targetUrl);
+      opts.traceSender.push(
+        TraceSender.buildEntry({
+          method: opts.method,
+          targetUrl: opts.targetUrl,
+          statusCode: opts.statusCode,
+          durationMs: opts.durationMs,
+          requestBody: opts.requestBody,
+          responseBody: null,
+          usage,
+          traceId: opts.traceId,
+          streaming: true,
+        }),
+      );
+    },
+  });
+
+  return body.pipeThrough(transform);
 }

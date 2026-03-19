@@ -3,6 +3,12 @@ export type GreptureConfig = {
   proxyUrl: string;
   /** Default trace ID applied to all requests. Override per-request via FetchOptions or setTraceId(). */
   traceId?: string;
+  /**
+   * SDK operating mode.
+   * - `"proxy"` (default): all requests route through the Grepture proxy (rules, PII redaction, blocking).
+   * - `"trace"`: requests go directly to the LLM provider; trace data is sent async to the proxy for observability.
+   */
+  mode?: "proxy" | "trace";
 };
 
 export type FetchOptions = RequestInit & {

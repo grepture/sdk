@@ -4,13 +4,19 @@ export class GreptureResponse {
   readonly aiSampling: { used: number; limit: number } | null;
   private readonly response: Response;
 
-  constructor(response: Response) {
+  constructor(
+    response: Response,
+    overrides?: { requestId?: string; rulesApplied?: string[] },
+  ) {
     this.response = response;
-    this.requestId = response.headers.get("X-Request-Id") || "";
-    const rulesHeader = response.headers.get("X-Grepture-Rules-Applied");
-    this.rulesApplied = rulesHeader
-      ? rulesHeader.split(",").map((s) => s.trim()).filter(Boolean)
-      : [];
+    this.requestId =
+      overrides?.requestId ?? response.headers.get("X-Request-Id") ?? "";
+    this.rulesApplied = overrides?.rulesApplied ?? (() => {
+      const rulesHeader = response.headers.get("X-Grepture-Rules-Applied");
+      return rulesHeader
+        ? rulesHeader.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+    })();
     const samplingHeader = response.headers.get("X-Grepture-AI-Sampling");
     if (samplingHeader) {
       const [used, limit] = samplingHeader.split("/").map(Number);
@@ -65,6 +71,9 @@ export class GreptureResponse {
   }
 
   clone(): GreptureResponse {
-    return new GreptureResponse(this.response.clone());
+    return new GreptureResponse(this.response.clone(), {
+      requestId: this.requestId,
+      rulesApplied: this.rulesApplied,
+    });
   }
 }
