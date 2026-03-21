@@ -67,6 +67,40 @@ const completion = await client.chat.completions.create({
 });
 ```
 
+## Modes
+
+The SDK supports two operating modes:
+
+| Mode | Default | Traffic flow | Use case |
+|------|---------|-------------|----------|
+| `"proxy"` | Yes | App → Grepture → Provider | PII redaction, blocking, prompt management |
+| `"trace"` | No | App → Provider (direct) | Observability and cost tracking without latency overhead |
+
+In **proxy mode** (default), requests route through the Grepture proxy where detection rules are applied. In **trace mode**, requests go directly to the provider — the SDK captures metadata (tokens, model, latency, cost) asynchronously and sends it to the dashboard in the background.
+
+```typescript
+// Trace mode — direct to provider, traces sent async
+const grepture = new Grepture({
+  apiKey: "gpt_abc123",
+  proxyUrl: "https://proxy.grepture.com",
+  mode: "trace",
+});
+
+// Same API — clientOptions() and fetch() work identically
+const client = new OpenAI(
+  grepture.clientOptions({
+    apiKey: "sk-openai-key",
+    baseURL: "https://api.openai.com/v1",
+  })
+);
+```
+
+In serverless environments, call `flush()` before the function exits to send any pending traces:
+
+```typescript
+await grepture.flush();
+```
+
 ## API
 
 ### `new Grepture(config)`
@@ -75,6 +109,8 @@ const completion = await client.chat.completions.create({
 |-----------|------|-------------|
 | `config.apiKey` | `string` | Your Grepture API key (`gpt_xxx`) |
 | `config.proxyUrl` | `string` | Grepture proxy URL (e.g. `https://proxy.grepture.com`) |
+| `config.mode` | `"proxy" \| "trace"` | Operating mode (default: `"proxy"`) |
+| `config.traceId` | `string?` | Default trace ID for conversation tracing |
 
 ### `grepture.fetch(targetUrl, init?)`
 
@@ -94,6 +130,10 @@ Returns `{ baseURL, apiKey, fetch }` for use with OpenAI-shaped SDK constructors
 |-----------|------|-------------|
 | `input.apiKey` | `string` | Target API key (e.g. `sk-openai-key`) |
 | `input.baseURL` | `string` | Target base URL (e.g. `https://api.openai.com/v1`) |
+
+### `grepture.flush()`
+
+Flushes any pending trace data. Only relevant in trace mode — use this in serverless or short-lived environments to ensure traces are sent before the process exits.
 
 ## Error Handling
 
