@@ -23,7 +23,10 @@ import { extractUsage, extractUsageFromSSELines } from "./usage.js";
 export class Grepture {
   private readonly config: GreptureConfig;
   private currentTraceId: string | undefined;
-  private traceSender: TraceSender | null = null;
+  private currentLabel: string | undefined;
+  private currentMetadata: Record<string, string> | undefined;
+  private seq = 0;
+  private readonly traceSender: TraceSender;
 
   /** Prompt management — use, assemble, get, resolve, list. */
   readonly prompt: PromptNamespace;
@@ -40,12 +43,10 @@ export class Grepture {
       mode: this.config.mode ?? "proxy",
     });
 
-    if (this.isTraceMode) {
-      this.traceSender = new TraceSender(
-        this.config.proxyUrl,
-        this.config.apiKey,
-      );
-    }
+    this.traceSender = new TraceSender(
+      this.config.proxyUrl,
+      this.config.apiKey,
+    );
   }
 
   private get isTraceMode(): boolean {
@@ -62,14 +63,59 @@ export class Grepture {
     return this.currentTraceId;
   }
 
+  /** Set or clear the default label for all subsequent requests. */
+  setLabel(label: string | undefined): void {
+    this.currentLabel = label;
+  }
+
+  /** Get the current default label. */
+  getLabel(): string | undefined {
+    return this.currentLabel;
+  }
+
+  /** Set or clear default metadata for all subsequent requests. Per-request metadata merges with (and overrides) these defaults. */
+  setMetadata(metadata: Record<string, string> | undefined): void {
+    this.currentMetadata = metadata;
+  }
+
+  /** Get the current default metadata. */
+  getMetadata(): Record<string, string> | undefined {
+    return this.currentMetadata;
+  }
+
   /**
-   * Flush pending trace data. No-op in proxy mode.
+   * Log a custom event into the current trace.
+   * Events appear in the trace timeline alongside AI calls.
+   */
+  log(event: string, data?: Record<string, unknown>): void {
+    const body = data !== undefined
+      ? JSON.stringify({ event, data })
+      : JSON.stringify({ event });
+
+    this.traceSender.push(
+      TraceSender.buildEntry({
+        method: "LOG",
+        targetUrl: "",
+        statusCode: 0,
+        durationMs: 0,
+        requestBody: body,
+        responseBody: null,
+        usage: null,
+        traceId: this.currentTraceId ?? null,
+        label: event,
+        metadata: this.currentMetadata ? { ...this.currentMetadata } : null,
+        seq: ++this.seq,
+        streaming: false,
+      }),
+    );
+  }
+
+  /**
+   * Flush pending trace data.
    * Call before process exit in serverless / short-lived environments.
    */
   async flush(): Promise<void> {
-    if (this.traceSender) {
-      await this.traceSender.flush();
-    }
+    await this.traceSender.flush();
   }
 
   async fetch(
@@ -107,6 +153,21 @@ export class Grepture {
       headers.set("X-Grepture-Trace-Id", traceId);
     }
 
+    // Set label (per-request overrides default)
+    const label = init?.label ?? this.currentLabel;
+    if (label) {
+      headers.set("X-Grepture-Label", label);
+    }
+
+    // Set metadata (per-request merges with and overrides global)
+    const metadata = { ...this.currentMetadata, ...init?.metadata };
+    if (Object.keys(metadata).length > 0) {
+      headers.set("X-Grepture-Metadata", JSON.stringify(metadata));
+    }
+
+    // Set sequence number for ordering
+    headers.set("X-Grepture-Seq", String(++this.seq));
+
     const response = await globalThis.fetch(proxyRequestUrl, {
       ...init,
       headers,
@@ -122,6 +183,10 @@ export class Grepture {
     init?: FetchOptions,
   ): Promise<GreptureResponse> {
     const traceId = init?.traceId ?? this.currentTraceId ?? null;
+    const label = init?.label ?? this.currentLabel ?? null;
+    const currentSeq = ++this.seq;
+    const merged = { ...this.currentMetadata, ...init?.metadata };
+    const metadata = Object.keys(merged).length > 0 ? merged : null;
     const requestBody =
       init?.body && typeof init.body === "string" ? init.body : null;
 
@@ -142,7 +207,7 @@ export class Grepture {
 
     if (isStreaming && response.body) {
       // Wrap stream: pass through immediately, capture last few SSE lines for usage
-      const traceSender = this.traceSender!;
+      const traceSender = this.traceSender;
       const wrappedBody = wrapStreamForTrace(response.body, {
         method: init?.method ?? "POST",
         targetUrl,
@@ -150,6 +215,9 @@ export class Grepture {
         durationMs,
         requestBody,
         traceId,
+        label,
+        metadata,
+        seq: currentSeq,
         traceSender,
       });
 
@@ -171,7 +239,7 @@ export class Grepture {
       .text()
       .then((body) => {
         const usage = extractUsage(body, targetUrl);
-        this.traceSender!.push(
+        this.traceSender.push(
           TraceSender.buildEntry({
             method: init?.method ?? "POST",
             targetUrl,
@@ -181,6 +249,9 @@ export class Grepture {
             responseBody: body,
             usage,
             traceId,
+            label,
+            metadata,
+            seq: currentSeq,
             streaming: false,
           }),
         );
@@ -205,6 +276,9 @@ export class Grepture {
     const greptureApiKey = this.config.apiKey;
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
     const getTraceId = () => this.currentTraceId;
+    const getLabel = () => this.currentLabel;
+    const getMetadata = () => this.currentMetadata;
+    const nextSeq = () => ++this.seq;
 
     const wrappedFetch: typeof fetch = async (
       reqInput: RequestInfo | URL,
@@ -273,6 +347,21 @@ export class Grepture {
         headers.set("X-Grepture-Trace-Id", traceId);
       }
 
+      // Set label if present
+      const label = getLabel();
+      if (label) {
+        headers.set("X-Grepture-Label", label);
+      }
+
+      // Set metadata if present
+      const metadata = getMetadata();
+      if (metadata && Object.keys(metadata).length > 0) {
+        headers.set("X-Grepture-Metadata", JSON.stringify(metadata));
+      }
+
+      // Set sequence number for ordering
+      headers.set("X-Grepture-Seq", String(nextSeq()));
+
       return globalThis.fetch(url, { ...finalInit, headers });
     };
 
@@ -286,7 +375,13 @@ export class Grepture {
   private clientOptionsTrace(input: ClientOptionsInput): ClientOptionsOutput {
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
     const getTraceId = () => this.currentTraceId ?? null;
-    const traceSender = this.traceSender!;
+    const getLabel = () => this.currentLabel ?? null;
+    const nextSeq = () => ++this.seq;
+    const getMetadata = () => {
+      const m = this.currentMetadata;
+      return m && Object.keys(m).length > 0 ? m : null;
+    };
+    const traceSender = this.traceSender;
 
     const wrappedFetch: typeof fetch = async (
       reqInput: RequestInfo | URL,
@@ -317,6 +412,9 @@ export class Grepture {
       }
 
       const traceId = getTraceId();
+      const label = getLabel();
+      const metadata = getMetadata();
+      const currentSeq = nextSeq();
 
       // Send directly to the real provider URL — no rewriting
       const response = await globalThis.fetch(url, reqInit);
@@ -331,6 +429,9 @@ export class Grepture {
           durationMs,
           requestBody,
           traceId,
+          label,
+          metadata,
+          seq: currentSeq,
           traceSender,
         });
 
@@ -357,6 +458,9 @@ export class Grepture {
               responseBody: body,
               usage,
               traceId,
+              label,
+              metadata,
+              seq: currentSeq,
               streaming: false,
             }),
           );
@@ -438,6 +542,9 @@ function wrapStreamForTrace(
     durationMs: number;
     requestBody: string | null;
     traceId: string | null;
+    label: string | null;
+    metadata: Record<string, string> | null;
+    seq: number;
     traceSender: TraceSender;
   },
 ): ReadableStream<Uint8Array> {
@@ -485,6 +592,9 @@ function wrapStreamForTrace(
           responseBody: null,
           usage,
           traceId: opts.traceId,
+          label: opts.label,
+          metadata: opts.metadata,
+          seq: opts.seq,
           streaming: true,
         }),
       );

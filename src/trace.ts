@@ -13,6 +13,9 @@ export type TraceEntry = {
   completion_tokens: number | null;
   total_tokens: number | null;
   trace_id: string | null;
+  label: string | null;
+  metadata: Record<string, string> | null;
+  seq: number | null;
   streaming: boolean;
 };
 
@@ -96,6 +99,9 @@ export class TraceSender {
     responseBody: string | null;
     usage: UsageInfo | null;
     traceId: string | null;
+    label: string | null;
+    metadata: Record<string, string> | null;
+    seq?: number | null;
     streaming: boolean;
   }): TraceEntry {
     return {
@@ -111,6 +117,9 @@ export class TraceSender {
       completion_tokens: opts.usage?.completion_tokens ?? null,
       total_tokens: opts.usage?.total_tokens ?? null,
       trace_id: opts.traceId,
+      label: opts.label,
+      metadata: opts.metadata,
+      seq: opts.seq ?? null,
       streaming: opts.streaming,
     };
   }

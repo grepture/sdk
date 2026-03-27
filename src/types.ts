@@ -14,6 +14,10 @@ export type GreptureConfig = {
 export type FetchOptions = RequestInit & {
   /** Trace ID for this request. Overrides the default set on the client. */
   traceId?: string;
+  /** Label for this request within a trace (e.g. "tool-call", "report-generation"). */
+  label?: string;
+  /** Arbitrary key-value metadata attached to this request. Merged with global metadata (per-request wins). */
+  metadata?: Record<string, string>;
 };
 
 export type GreptureResponseMeta = {
