@@ -101,6 +101,64 @@ In serverless environments, call `flush()` before the function exits to send any
 await grepture.flush();
 ```
 
+## Tracing
+
+Group related requests into a trace, label each step, attach metadata, and log custom events.
+
+```typescript
+const grepture = new Grepture({
+  apiKey: "gpt_abc123",
+  proxyUrl: "https://proxy.grepture.com",
+  traceId: "agent-run-42",
+});
+
+const client = new OpenAI(
+  grepture.clientOptions({
+    apiKey: "sk-openai-key",
+    baseURL: "https://api.openai.com/v1",
+  })
+);
+
+// Attach metadata to all requests in this trace
+grepture.setMetadata({ userId: "u_123", environment: "prod" });
+
+// Label each step
+grepture.setLabel("extract-facts");
+await client.chat.completions.create({ model: "gpt-4o", messages: [...] });
+
+// Log a custom event between AI calls
+grepture.log("extract-facts-done", { tokens: 174 });
+
+grepture.setLabel("draft-response");
+await client.chat.completions.create({ model: "gpt-4o", messages: [...] });
+
+// Flush before exit in serverless environments
+await grepture.flush();
+```
+
+**Labels** identify individual requests within a trace. Set globally with `setLabel()` or per-request via `FetchOptions`:
+
+```typescript
+await grepture.fetch(url, { body, label: "summarize" });
+```
+
+**Metadata** attaches arbitrary key-value tags. Per-request metadata merges with (and overrides) global defaults:
+
+```typescript
+grepture.setMetadata({ userId: "u_123" });
+await grepture.fetch(url, { body, metadata: { feature: "chat" } });
+// Request gets { userId: "u_123", feature: "chat" }
+```
+
+**Custom log events** record non-AI events in the trace timeline:
+
+```typescript
+grepture.log("cache-hit", { key: "embedding-abc" });
+grepture.log("tool-executed", { tool: "web-search", query: "latest news" });
+```
+
+All trace data (labels, metadata, log events) is visible in the Grepture dashboard under Traffic Log > Traces, and on the dedicated trace detail page.
+
 ## API
 
 ### `new Grepture(config)`
@@ -131,9 +189,21 @@ Returns `{ baseURL, apiKey, fetch }` for use with OpenAI-shaped SDK constructors
 | `input.apiKey` | `string` | Target API key (e.g. `sk-openai-key`) |
 | `input.baseURL` | `string` | Target base URL (e.g. `https://api.openai.com/v1`) |
 
+### `grepture.setLabel(label?)` / `grepture.getLabel()`
+
+Set or clear the default label for all subsequent requests. Override per-request via `FetchOptions.label`.
+
+### `grepture.setMetadata(metadata?)` / `grepture.getMetadata()`
+
+Set or clear default metadata (`Record<string, string>`) for all subsequent requests. Override per-request via `FetchOptions.metadata` (values merge, per-request wins on conflicts).
+
+### `grepture.log(event, data?)`
+
+Log a custom event into the current trace. `event` is the event name (string), `data` is an optional payload (object). Events appear in the trace timeline alongside AI calls.
+
 ### `grepture.flush()`
 
-Flushes any pending trace data. Only relevant in trace mode — use this in serverless or short-lived environments to ensure traces are sent before the process exits.
+Flushes any pending trace and log data. Call before process exit in serverless or short-lived environments.
 
 ## Error Handling
 
