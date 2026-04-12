@@ -27,7 +27,15 @@ export type GreptureResponseMeta = {
 };
 
 export type ClientOptionsInput = {
-  apiKey: string;
+  /**
+   * Your provider API key (OpenAI, Anthropic, etc.).
+   *
+   * Omit this to use a provider key stored in Grepture's dashboard. When omitted,
+   * the SDK strips outgoing Authorization/x-api-key headers, and the proxy
+   * resolves the team's stored key for the detected provider (plus any fallback
+   * chain configured).
+   */
+  apiKey?: string;
   baseURL: string;
 };
 

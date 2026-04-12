@@ -275,6 +275,7 @@ export class Grepture {
     const proxyBase = `${this.config.proxyUrl}/proxy/v1`;
     const greptureApiKey = this.config.apiKey;
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
+    const useStoredKey = !input.apiKey;
     const getTraceId = () => this.currentTraceId;
     const getLabel = () => this.currentLabel;
     const getMetadata = () => this.currentMetadata;
@@ -326,15 +327,24 @@ export class Grepture {
         }
       }
 
-      // Move SDK auth to X-Grepture-Auth-Forward
-      // Supports both standard Authorization and Azure's api-key header
-      const authHeader = headers.get("Authorization");
-      const azureApiKey = headers.get("api-key");
-      if (authHeader) {
-        headers.set("X-Grepture-Auth-Forward", authHeader);
-      } else if (azureApiKey) {
-        headers.set("X-Grepture-Auth-Forward", `Bearer ${azureApiKey}`);
+      if (useStoredKey) {
+        // No apiKey provided — use Grepture's stored provider key. Strip any
+        // dummy auth headers the underlying SDK added so the proxy can't
+        // mistake them for a caller-supplied key.
+        headers.delete("Authorization");
         headers.delete("api-key");
+        headers.delete("x-api-key");
+      } else {
+        // Move SDK auth to X-Grepture-Auth-Forward
+        // Supports both standard Authorization and Azure's api-key header
+        const authHeader = headers.get("Authorization");
+        const azureApiKey = headers.get("api-key");
+        if (authHeader) {
+          headers.set("X-Grepture-Auth-Forward", authHeader);
+        } else if (azureApiKey) {
+          headers.set("X-Grepture-Auth-Forward", `Bearer ${azureApiKey}`);
+          headers.delete("api-key");
+        }
       }
 
       // Set Grepture auth and target
@@ -367,12 +377,20 @@ export class Grepture {
 
     return {
       baseURL: proxyBase,
-      apiKey: input.apiKey,
+      // Placeholder is used when no apiKey was provided — the underlying SDK
+      // (OpenAI, Anthropic, etc.) requires a truthy value, but our wrapped
+      // fetch strips the resulting auth header before it reaches the proxy.
+      apiKey: input.apiKey ?? "grepture-stored-key",
       fetch: wrappedFetch,
     };
   }
 
   private clientOptionsTrace(input: ClientOptionsInput): ClientOptionsOutput {
+    if (!input.apiKey) {
+      throw new Error(
+        "Grepture trace mode requires an explicit apiKey — stored keys are proxy-mode only.",
+      );
+    }
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
     const getTraceId = () => this.currentTraceId ?? null;
     const getLabel = () => this.currentLabel ?? null;
