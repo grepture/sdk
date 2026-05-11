@@ -16,6 +16,13 @@ export type {
 } from "./types.js";
 export { extractUsage, extractUsageFromSSELines } from "./usage.js";
 export type { UsageInfo } from "./usage.js";
+export { EmbeddingsNamespace } from "./embeddings.js";
+export type {
+  EmbeddingsCreateParams,
+  EmbeddingsResponse,
+  EmbeddingsInput,
+  EmbeddingObject,
+} from "./embeddings.js";
 export { promptHeaders, resolveMessages, resolveTemplate } from "./prompts.js";
 export type {
   PromptRef,

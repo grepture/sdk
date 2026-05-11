@@ -18,6 +18,7 @@ import {
   type PromptRef,
 } from "./prompts.js";
 import { TraceSender } from "./trace.js";
+import { EmbeddingsNamespace } from "./embeddings.js";
 import { extractUsage, extractUsageFromSSELines } from "./usage.js";
 
 export class Grepture {
@@ -31,6 +32,9 @@ export class Grepture {
   /** Prompt management — use, assemble, get, resolve, list. */
   readonly prompt: PromptNamespace;
 
+  /** PII-redacting embeddings — wraps POST /v1/embeddings. */
+  readonly embeddings: EmbeddingsNamespace;
+
   constructor(config: GreptureConfig) {
     this.config = {
       ...config,
@@ -41,6 +45,11 @@ export class Grepture {
       apiKey: this.config.apiKey,
       proxyUrl: this.config.proxyUrl,
       mode: this.config.mode ?? "proxy",
+    });
+
+    this.embeddings = new EmbeddingsNamespace({
+      apiKey: this.config.apiKey,
+      proxyUrl: this.config.proxyUrl,
     });
 
     this.traceSender = new TraceSender(

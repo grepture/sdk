@@ -1,6 +1,6 @@
 {
   "name": "@grepture/sdk",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Grepture proxy SDK — drop-in fetch wrapper for AI API governance",
   "license": "AGPL-3.0-only",
   "repository": {
