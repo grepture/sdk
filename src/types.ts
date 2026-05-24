@@ -18,6 +18,15 @@ export type FetchOptions = RequestInit & {
   label?: string;
   /** Arbitrary key-value metadata attached to this request. Merged with global metadata (per-request wins). */
   metadata?: Record<string, string>;
+  /**
+   * Capture a full debug pipeline trace (input → redaction → upstream → restored output)
+   * for this request. Rows live for 24 hours and are visible in the dashboard's
+   * debug view. Rejected when the team is in zero-data mode. Default `false`.
+   *
+   * Use sparingly: the captured row intentionally retains the raw input and
+   * original→token mappings that redaction is designed to remove.
+   */
+  debug?: boolean;
 };
 
 export type GreptureResponseMeta = {
@@ -37,6 +46,11 @@ export type ClientOptionsInput = {
    */
   apiKey?: string;
   baseURL: string;
+  /**
+   * Capture debug pipeline traces for every request issued through this client.
+   * Equivalent to setting `debug: true` on each `fetch()` call. Default `false`.
+   */
+  debug?: boolean;
 };
 
 export type ClientOptionsOutput = {

@@ -177,6 +177,12 @@ export class Grepture {
     // Set sequence number for ordering
     headers.set("X-Grepture-Seq", String(++this.seq));
 
+    // Debug pipeline capture (opt-in). The proxy will silently downgrade to
+    // a no-op in zero-data mode and surface that via X-Grepture-Debug response header.
+    if (init?.debug) {
+      headers.set("X-Grepture-Debug", "true");
+    }
+
     const response = await globalThis.fetch(proxyRequestUrl, {
       ...init,
       headers,
@@ -285,6 +291,7 @@ export class Grepture {
     const greptureApiKey = this.config.apiKey;
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
     const useStoredKey = !input.apiKey;
+    const debugAll = input.debug === true;
     const getTraceId = () => this.currentTraceId;
     const getLabel = () => this.currentLabel;
     const getMetadata = () => this.currentMetadata;
@@ -380,6 +387,10 @@ export class Grepture {
 
       // Set sequence number for ordering
       headers.set("X-Grepture-Seq", String(nextSeq()));
+
+      if (debugAll) {
+        headers.set("X-Grepture-Debug", "true");
+      }
 
       return globalThis.fetch(url, { ...finalInit, headers });
     };
