@@ -24,6 +24,7 @@ import { extractUsage, extractUsageFromSSELines } from "./usage.js";
 export class Grepture {
   private readonly config: GreptureConfig;
   private currentTraceId: string | undefined;
+  private currentSessionId: string | undefined;
   private currentLabel: string | undefined;
   private currentMetadata: Record<string, string> | undefined;
   private seq = 0;
@@ -41,6 +42,7 @@ export class Grepture {
       proxyUrl: config.proxyUrl.replace(/\/+$/, ""),
     };
     this.currentTraceId = config.traceId;
+    this.currentSessionId = config.sessionId;
     this.prompt = new TraceAwarePromptNamespace({
       apiKey: this.config.apiKey,
       proxyUrl: this.config.proxyUrl,
@@ -70,6 +72,16 @@ export class Grepture {
   /** Get the current default trace ID. */
   getTraceId(): string | undefined {
     return this.currentTraceId;
+  }
+
+  /** Set or clear the default session ID for all subsequent requests. */
+  setSessionId(sessionId: string | undefined): void {
+    this.currentSessionId = sessionId;
+  }
+
+  /** Get the current default session ID. */
+  getSessionId(): string | undefined {
+    return this.currentSessionId;
   }
 
   /** Set or clear the default label for all subsequent requests. */
@@ -160,6 +172,12 @@ export class Grepture {
     const traceId = init?.traceId ?? this.currentTraceId;
     if (traceId) {
       headers.set("X-Grepture-Trace-Id", traceId);
+    }
+
+    // Set session ID (per-request overrides default)
+    const sessionId = init?.sessionId ?? this.currentSessionId;
+    if (sessionId) {
+      headers.set("X-Grepture-Session-Id", sessionId);
     }
 
     // Set label (per-request overrides default)
@@ -293,6 +311,7 @@ export class Grepture {
     const useStoredKey = !input.apiKey;
     const debugAll = input.debug === true;
     const getTraceId = () => this.currentTraceId;
+    const getSessionId = () => this.currentSessionId;
     const getLabel = () => this.currentLabel;
     const getMetadata = () => this.currentMetadata;
     const nextSeq = () => ++this.seq;
@@ -371,6 +390,11 @@ export class Grepture {
       const traceId = getTraceId();
       if (traceId) {
         headers.set("X-Grepture-Trace-Id", traceId);
+      }
+
+      const sessionId = getSessionId();
+      if (sessionId) {
+        headers.set("X-Grepture-Session-Id", sessionId);
       }
 
       // Set label if present

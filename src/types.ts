@@ -4,6 +4,12 @@ export type GreptureConfig = {
   /** Default trace ID applied to all requests. Override per-request via FetchOptions or setTraceId(). */
   traceId?: string;
   /**
+   * Session ID grouping many traces (e.g. one agent conversation, one user
+   * session). Must be an existing session — create one via `POST /api/sessions`
+   * or let `grepture dev` inject it. Proxy mode only.
+   */
+  sessionId?: string;
+  /**
    * SDK operating mode.
    * - `"proxy"` (default): all requests route through the Grepture proxy (rules, PII redaction, blocking).
    * - `"trace"`: requests go directly to the LLM provider; trace data is sent async to the proxy for observability.
@@ -14,6 +20,8 @@ export type GreptureConfig = {
 export type FetchOptions = RequestInit & {
   /** Trace ID for this request. Overrides the default set on the client. */
   traceId?: string;
+  /** Session ID for this request. Overrides the default set on the client. */
+  sessionId?: string;
   /** Label for this request within a trace (e.g. "tool-call", "report-generation"). */
   label?: string;
   /** Arbitrary key-value metadata attached to this request. Merged with global metadata (per-request wins). */
