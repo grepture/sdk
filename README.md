@@ -180,6 +180,8 @@ Same signature as the standard `fetch`. Returns a `GreptureResponse` with additi
 
 If you pass an `Authorization` header (for the target API), the SDK automatically moves it to `X-Grepture-Auth-Forward` and sets the Grepture auth header instead.
 
+Set `gatewayTimeout` (seconds) to control how long the proxy waits for the provider on this request. It overrides rule timeouts in either direction and is capped at 600. Proxy mode only.
+
 ### `grepture.clientOptions(input)`
 
 Returns `{ baseURL, apiKey, fetch }` for use with OpenAI-shaped SDK constructors.
@@ -188,6 +190,7 @@ Returns `{ baseURL, apiKey, fetch }` for use with OpenAI-shaped SDK constructors
 |-----------|------|-------------|
 | `input.apiKey` | `string` | Target API key (e.g. `sk-openai-key`) |
 | `input.baseURL` | `string` | Target base URL (e.g. `https://api.openai.com/v1`) |
+| `input.gatewayTimeout` | `number` | Optional. Seconds the proxy waits for the provider to start responding, for every request through this client. Overrides rule timeouts; capped at 600. Proxy mode only |
 
 ### `grepture.setLabel(label?)` / `grepture.getLabel()`
 

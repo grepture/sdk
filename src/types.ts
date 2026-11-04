@@ -35,6 +35,12 @@ export type FetchOptions = RequestInit & {
    * original→token mappings that redaction is designed to remove.
    */
   debug?: boolean;
+  /**
+   * Seconds the proxy waits for the provider to start responding, for this
+   * request. Overrides your rule timeouts in either direction; capped at 600.
+   * Proxy mode only.
+   */
+  gatewayTimeout?: number;
 };
 
 export type GreptureResponseMeta = {
@@ -59,6 +65,12 @@ export type ClientOptionsInput = {
    * Equivalent to setting `debug: true` on each `fetch()` call. Default `false`.
    */
   debug?: boolean;
+  /**
+   * Seconds the proxy waits for the provider to start responding, for every
+   * request through this client. Overrides your rule timeouts; capped at 600.
+   * Proxy mode only.
+   */
+  gatewayTimeout?: number;
 };
 
 export type ClientOptionsOutput = {

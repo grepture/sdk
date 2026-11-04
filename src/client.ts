@@ -201,6 +201,10 @@ export class Grepture {
       headers.set("X-Grepture-Debug", "true");
     }
 
+    if (init?.gatewayTimeout !== undefined) {
+      headers.set("X-Grepture-Timeout", String(init.gatewayTimeout));
+    }
+
     const response = await globalThis.fetch(proxyRequestUrl, {
       ...init,
       headers,
@@ -310,6 +314,7 @@ export class Grepture {
     const targetBaseURL = input.baseURL.replace(/\/+$/, "");
     const useStoredKey = !input.apiKey;
     const debugAll = input.debug === true;
+    const gatewayTimeout = input.gatewayTimeout;
     const getTraceId = () => this.currentTraceId;
     const getSessionId = () => this.currentSessionId;
     const getLabel = () => this.currentLabel;
@@ -414,6 +419,10 @@ export class Grepture {
 
       if (debugAll) {
         headers.set("X-Grepture-Debug", "true");
+      }
+
+      if (gatewayTimeout !== undefined) {
+        headers.set("X-Grepture-Timeout", String(gatewayTimeout));
       }
 
       return globalThis.fetch(url, { ...finalInit, headers });
