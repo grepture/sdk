@@ -10,6 +10,17 @@ export type GreptureConfig = {
    */
   sessionId?: string;
   /**
+   * Default token scope (e.g. a conversation ID). Makes mask-and-restore tokens
+   * stable for every request with this scope, keeping provider prompt caches
+   * valid. Override per-request via FetchOptions or setTokenScope(). Proxy mode only.
+   */
+  tokenScope?: string;
+  /**
+   * Bind masked tokens to their token scope: they restore only in requests
+   * with the same scope. Requires a token scope. Default `false`. Proxy mode only.
+   */
+  bindTokens?: boolean;
+  /**
    * SDK operating mode.
    * - `"proxy"` (default): all requests route through the Grepture proxy (rules, PII redaction, blocking).
    * - `"trace"`: requests go directly to the LLM provider; trace data is sent async to the proxy for observability.
@@ -22,6 +33,10 @@ export type FetchOptions = RequestInit & {
   traceId?: string;
   /** Session ID for this request. Overrides the default set on the client. */
   sessionId?: string;
+  /** Token scope for this request. Overrides the default set on the client. */
+  tokenScope?: string;
+  /** Bind this request's masked tokens to its token scope. Overrides the client default. */
+  bindTokens?: boolean;
   /** Label for this request within a trace (e.g. "tool-call", "report-generation"). */
   label?: string;
   /** Arbitrary key-value metadata attached to this request. Merged with global metadata (per-request wins). */

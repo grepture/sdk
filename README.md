@@ -169,6 +169,8 @@ All trace data (labels, metadata, log events) is visible in the Grepture dashboa
 | `config.proxyUrl` | `string` | Grepture proxy URL (e.g. `https://proxy.grepture.com`) |
 | `config.mode` | `"proxy" \| "trace"` | Operating mode (default: `"proxy"`) |
 | `config.traceId` | `string?` | Default trace ID for conversation tracing |
+| `config.tokenScope` | `string?` | Default token scope (e.g. a conversation ID). Masked values get the same token on every request with this scope, keeping prompt caches valid |
+| `config.bindTokens` | `boolean?` | Masked tokens restore only in requests with the same token scope. Requires a token scope (default: `false`) |
 
 ### `grepture.fetch(targetUrl, init?)`
 
@@ -179,6 +181,8 @@ Same signature as the standard `fetch`. Returns a `GreptureResponse` with additi
 - `res.status`, `res.ok`, `res.headers`, `res.json()`, `res.text()` — standard Response properties
 
 If you pass an `Authorization` header (for the target API), the SDK automatically moves it to `X-Grepture-Auth-Forward` and sets the Grepture auth header instead.
+
+Set `tokenScope` and `bindTokens` to override the client defaults for this request.
 
 Set `gatewayTimeout` (seconds) to control how long the proxy waits for the provider on this request. It overrides rule timeouts in either direction and is capped at 600. Proxy mode only.
 
@@ -191,6 +195,15 @@ Returns `{ baseURL, apiKey, fetch }` for use with OpenAI-shaped SDK constructors
 | `input.apiKey` | `string` | Target API key (e.g. `sk-openai-key`) |
 | `input.baseURL` | `string` | Target base URL (e.g. `https://api.openai.com/v1`) |
 | `input.gatewayTimeout` | `number` | Optional. Seconds the proxy waits for the provider to start responding, for every request through this client. Overrides rule timeouts; capped at 600. Proxy mode only |
+
+### `grepture.setTokenScope(scope?)` / `grepture.getTokenScope()`
+
+Set or clear the default token scope for all subsequent requests, including those made through `clientOptions()`. Set it to the current conversation ID before each turn. Override per-request via `FetchOptions.tokenScope`.
+
+```ts
+const grepture = new Grepture({ apiKey, proxyUrl, bindTokens: true });
+grepture.setTokenScope(`conv-${conversationId}`);
+```
 
 ### `grepture.setLabel(label?)` / `grepture.getLabel()`
 

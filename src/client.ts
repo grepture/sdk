@@ -25,6 +25,7 @@ export class Grepture {
   private readonly config: GreptureConfig;
   private currentTraceId: string | undefined;
   private currentSessionId: string | undefined;
+  private currentTokenScope: string | undefined;
   private currentLabel: string | undefined;
   private currentMetadata: Record<string, string> | undefined;
   private seq = 0;
@@ -43,6 +44,7 @@ export class Grepture {
     };
     this.currentTraceId = config.traceId;
     this.currentSessionId = config.sessionId;
+    this.currentTokenScope = config.tokenScope;
     this.prompt = new TraceAwarePromptNamespace({
       apiKey: this.config.apiKey,
       proxyUrl: this.config.proxyUrl,
@@ -82,6 +84,19 @@ export class Grepture {
   /** Get the current default session ID. */
   getSessionId(): string | undefined {
     return this.currentSessionId;
+  }
+
+  /**
+   * Set or clear the default token scope (e.g. the current conversation ID)
+   * for all subsequent requests.
+   */
+  setTokenScope(tokenScope: string | undefined): void {
+    this.currentTokenScope = tokenScope;
+  }
+
+  /** Get the current default token scope. */
+  getTokenScope(): string | undefined {
+    return this.currentTokenScope;
   }
 
   /** Set or clear the default label for all subsequent requests. */
@@ -179,6 +194,12 @@ export class Grepture {
     if (sessionId) {
       headers.set("X-Grepture-Session-Id", sessionId);
     }
+
+    setTokenScopeHeaders(
+      headers,
+      init?.tokenScope ?? this.currentTokenScope,
+      init?.bindTokens ?? this.config.bindTokens,
+    );
 
     // Set label (per-request overrides default)
     const label = init?.label ?? this.currentLabel;
@@ -317,6 +338,8 @@ export class Grepture {
     const gatewayTimeout = input.gatewayTimeout;
     const getTraceId = () => this.currentTraceId;
     const getSessionId = () => this.currentSessionId;
+    const getTokenScope = () => this.currentTokenScope;
+    const bindTokens = this.config.bindTokens;
     const getLabel = () => this.currentLabel;
     const getMetadata = () => this.currentMetadata;
     const nextSeq = () => ++this.seq;
@@ -401,6 +424,8 @@ export class Grepture {
       if (sessionId) {
         headers.set("X-Grepture-Session-Id", sessionId);
       }
+
+      setTokenScopeHeaders(headers, getTokenScope(), bindTokens);
 
       // Set label if present
       const label = getLabel();
@@ -673,4 +698,18 @@ function wrapStreamForTrace(
   });
 
   return body.pipeThrough(transform);
+}
+
+/**
+ * Sets X-Grepture-Token-Scope / X-Grepture-Token-Binding. Binding without a
+ * scope is still sent so the proxy rejects it, rather than silently
+ * restoring unbound tokens.
+ */
+function setTokenScopeHeaders(
+  headers: Headers,
+  tokenScope: string | undefined,
+  bindTokens: boolean | undefined,
+): void {
+  if (tokenScope) headers.set("X-Grepture-Token-Scope", tokenScope);
+  if (bindTokens) headers.set("X-Grepture-Token-Binding", "scope");
 }
